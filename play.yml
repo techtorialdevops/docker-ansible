@@ -1,0 +1,61 @@
+---
+- name: Install Docker and Setup Docker Swarm
+  hosts: all
+  become: yes
+  tasks:
+    - name: Install required packages
+      apt:
+        name: 
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - gnupg
+          - lsb-release
+        state: present
+        update_cache: yes
+
+    - name: Add Docker's official GPG key
+      apt_key:
+        url: https://download.docker.com/linux/ubuntu/gpg
+        state: present
+
+    - name: Add Docker's APT repository
+      apt_repository:
+        repo: deb [arch=amd64] https://download.docker.com/linux/ubuntu focal stable
+        state: present
+
+    - name: Install Docker
+      apt:
+        name: docker-ce
+        state: present
+        update_cache: yes
+
+    - name: Install Docker Compose
+      get_url:
+        url: https://github.com/docker/compose/releases/download/1.29.2/docker-compose-`uname -s`-`uname -m`
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+
+    - name: Add current user to docker group
+      user:
+        name: "{{ ansible_user }}"
+        groups: docker
+        append: yes
+
+    - name: Initialize Docker Swarm on Manager
+      command: docker swarm init
+      when: inventory_hostname == "manager"
+      register: swarm_init_output
+      ignore_errors: yes
+
+    - name: Get join token for workers
+      command: docker swarm join-token -q worker
+      when: inventory_hostname == "manager"
+      register: join_token
+
+- name: Join Swarm as Worker
+  hosts: swarm_workers
+  become: yes
+  tasks:
+    - name: Join the Docker Swarm
+      command: docker swarm join --token {{ hostvars['manager'].join_token.stdout }} {{ hostvars['manager'].ansible_host }}:2377
